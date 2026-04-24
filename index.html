@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Képfeleltető</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Egyedi animáció a kártyák finom megjelenéséhez */
+        .fade-in {
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col font-sans text-slate-800">
+
+    <!-- Fejléc -->
+    <header class="bg-green-600 text-white p-4 shadow-md text-center">
+        <h1 class="text-2xl font-bold">Növényismeret Feleltető</h1>
+    </header>
+
+    <!-- Fő tartalom -->
+    <main class="flex-grow flex items-center justify-center p-4">
+        
+        <!-- 1. Kezdőképernyő -->
+        <div id="start-screen" class="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center fade-in">
+            <h2 class="text-xl font-semibold mb-4">Üdvözöllek a feleltetőben!</h2>
+            <p class="text-slate-600 mb-8">
+                A program véletlenszerűen kiválaszt 6 képet a rendelkezésre álló 14-ből. Készen állsz?
+            </p>
+            <button onclick="startNewSet()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full shadow-md">
+                Új feleltetés indítása
+            </button>
+        </div>
+
+        <!-- 2. Feleltető (Képmutató) képernyő -->
+        <div id="quiz-screen" class="hidden bg-white p-4 sm:p-6 rounded-xl shadow-lg max-w-4xl w-full flex flex-col items-center fade-in">
+            
+            <!-- Számláló -->
+            <div class="w-full flex justify-between items-center mb-4 text-slate-500 font-medium">
+                <span id="counter" class="bg-slate-100 py-1 px-3 rounded-full text-sm">1 / 6</span>
+                <button onclick="endSetEarly()" class="text-sm hover:text-red-500 transition-colors">Befejezés</button>
+            </div>
+
+            <!-- Kép tároló -->
+            <div class="w-full h-[50vh] sm:h-[60vh] flex items-center justify-center bg-slate-50 rounded-lg overflow-hidden border border-slate-200 mb-6 relative">
+                <!-- Töltés indikátor (ha lassan töltene be a kép) -->
+                <div id="loading" class="absolute inset-0 flex items-center justify-center text-slate-400 hidden">
+                    Betöltés...
+                </div>
+                
+                <!-- Hibaüzenet, ha nem találja a képet -->
+                <div id="error-message" class="absolute inset-0 flex flex-col items-center justify-center text-red-500 hidden bg-slate-50 z-10">
+                    <span class="text-4xl mb-2">⚠️</span>
+                    <span class="font-bold">A kép nem található!</span>
+                    <span id="error-filename" class="text-sm text-slate-500 mt-2 font-mono"></span>
+                    <span class="text-xs text-slate-400 mt-1">Ellenőrizd a fájl nevét és a kis-/nagybetűket!</span>
+                </div>
+
+                <img id="flashcard-image" src="" alt="Feleltető kép" class="max-w-full max-h-full object-contain drop-shadow-md fade-in" onload="imageLoaded()" onerror="imageError()">
+            </div>
+
+            <!-- Vezérlő gombok -->
+            <div class="w-full flex justify-between gap-4">
+                <button onclick="prevImage()" id="btn-prev" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 px-6 rounded-lg transition-colors flex-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Előző
+                </button>
+                <button onclick="nextImage()" id="btn-next" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-colors flex-1 shadow-md">
+                    Következő
+                </button>
+            </div>
+        </div>
+
+        <!-- 3. Záró képernyő -->
+        <div id="end-screen" class="hidden bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center fade-in">
+            <div class="text-5xl mb-4">🎉</div>
+            <h2 class="text-2xl font-bold mb-2">Szett befejezve!</h2>
+            <p class="text-slate-600 mb-8">Végignézted mind a 6 véletlenszerűen kiválasztott képet.</p>
+            <button onclick="startNewSet()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-colors w-full shadow-md">
+                Újabb 6 kép kérése
+            </button>
+        </div>
+
+    </main>
+
+    <script>
+        // Képek listája. 
+        // FONTOS: A GitHub kis- és nagybetű érzékeny! Ellenőrizd, hogy a .jpg / .JPG egyezik-e a fájlok nevével!
+        const allImages = [
+            'Slide1.JPG', 
+            'Slide2.JPG', 
+            'Slide3.JPG', 
+            'Slide4.JPG', 
+            'Slide5.jpg', 
+            'Slide6.jpg', 
+            'Slide7.JPG', 
+            'Slide8.JPG', 
+            'Slide9.JPG', 
+            'Slide10.JPG'
+        ];
+
+        const IMAGES_PER_SET = 6;
+        let currentSet = [];
+        let currentIndex = 0;
+
+        // Fisher-Yates keverő algoritmus
+        function shuffleArray(array) {
+            let shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        // Új szett indítása
+        function startNewSet() {
+            // Megkeverjük az összes képet és kiválasztjuk az első 6-ot
+            const shuffledImages = shuffleArray(allImages);
+            currentSet = shuffledImages.slice(0, IMAGES_PER_SET);
+            currentIndex = 0;
+
+            // Képernyők váltása
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('end-screen').classList.add('hidden');
+            document.getElementById('quiz-screen').classList.remove('hidden');
+
+            updateView();
+        }
+
+        // Nézet frissítése (Kép és gombok állapota)
+        function updateView() {
+            const imgElement = document.getElementById('flashcard-image');
+            const loadingElement = document.getElementById('loading');
+            const errorElement = document.getElementById('error-message');
+            
+            // Töltőképernyő mutatása a kép betöltéséig
+            imgElement.classList.remove('fade-in');
+            imgElement.style.opacity = '0';
+            loadingElement.classList.remove('hidden');
+            errorElement.classList.add('hidden');
+
+            // Kép forrásának beállítása
+            imgElement.src = currentSet[currentIndex];
+            
+            // Számláló frissítése
+            document.getElementById('counter').innerText = `${currentIndex + 1} / ${IMAGES_PER_SET}`;
+
+            // Gombok állapotának frissítése
+            document.getElementById('btn-prev').disabled = (currentIndex === 0);
+            
+            if (currentIndex === IMAGES_PER_SET - 1) {
+                document.getElementById('btn-next').innerText = "Befejezés";
+                document.getElementById('btn-next').classList.remove('bg-green-600', 'hover:bg-green-700');
+                document.getElementById('btn-next').classList.add('bg-blue-600', 'hover:bg-blue-700');
+            } else {
+                document.getElementById('btn-next').innerText = "Következő";
+                document.getElementById('btn-next').classList.add('bg-green-600', 'hover:bg-green-700');
+                document.getElementById('btn-next').classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            }
+        }
+
+        // Kép betöltésekor lefutó esemény
+        function imageLoaded() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error-message').classList.add('hidden');
+            const imgElement = document.getElementById('flashcard-image');
+            imgElement.style.opacity = '1';
+            
+            // Újraindítjuk az animációt
+            imgElement.classList.remove('fade-in');
+            void imgElement.offsetWidth; // DOM reflow triggerelés az animáció újraindításához
+            imgElement.classList.add('fade-in');
+        }
+
+        // Képhiba esetén (ha nem találja a fájlt)
+        function imageError() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error-message').classList.remove('hidden');
+            document.getElementById('error-filename').innerText = "Keresett fájl: " + currentSet[currentIndex];
+            const imgElement = document.getElementById('flashcard-image');
+            imgElement.style.opacity = '0';
+        }
+
+        // Következő kép
+        function nextImage() {
+            if (currentIndex < IMAGES_PER_SET - 1) {
+                currentIndex++;
+                updateView();
+            } else {
+                finishSet();
+            }
+        }
+
+        // Előző kép
+        function prevImage() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateView();
+            }
+        }
+
+        // Szett korai befejezése (opcionális gomb)
+        function endSetEarly() {
+            if(confirm("Biztosan befejezed ezt a kört?")) {
+                finishSet();
+            }
+        }
+
+        // Szett befejezése és záróképernyő
+        function finishSet() {
+            document.getElementById('quiz-screen').classList.add('hidden');
+            document.getElementById('end-screen').classList.remove('hidden');
+        }
+
+        // Billentyűzet támogatás (Jobb/Bal nyíl)
+        document.addEventListener('keydown', (e) => {
+            if (!document.getElementById('quiz-screen').classList.contains('hidden')) {
+                if (e.key === 'ArrowRight') nextImage();
+                if (e.key === 'ArrowLeft') prevImage();
+            }
+        });
+
+    </script>
+</body>
+</html>
